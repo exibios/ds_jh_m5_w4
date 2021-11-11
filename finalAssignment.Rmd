@@ -1,0 +1,232 @@
+---
+title: "Final project Reroducible Research"
+author: "Franco Israel Corona Hernandez"
+date: "7/11/2021"
+output: 
+  html_document:
+    keep_md: true
+---
+
+## Previus configs
+```{r setup II, include=FALSE, eval=TRUE}
+knitr::opts_chunk$set(eval = TRUE, echo = TRUE)
+#install.packages("dplyr")
+#install.packages("stringdist")
+library("dplyr")            ## load
+library(stringdist)
+
+```
+
+  * Done
+
+
+## Getting data
+```{r gettingInicialFile}
+final_file = "data.csv.bz2"
+url = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+if(!file.exists(final_file)){
+  download.file(url,final_file,quiet = FALSE,method = "curl")
+}else{ 
+  print(paste("File ",final_file,"already exists. Skipping download.",collapse = ""))
+}
+
+```
+## Understanding data in file
+ - Showing 10 instead of 1000 original lines loaded to keep more clean the output / report
+
+```{r briefRaw}
+file_raw <- readLines(con<-file(final_file),n=1000)
+close(con)
+head(file_raw,10)
+```
+
+This brief of file shows us that there is a comma separated file with headers, double quote as columns strings enclosure. 
+Most of the data is numeric, at first sight 5 colulmns are posible string factors , it seems that null values are empty string, dates have date format 4/18/1950 and have a part of time in 0, time is in a INT format in 24 hrs format (1600)
+
+## Loading and Processing the data
+
+```{r loadDataR, cache=TRUE}
+data_pp_1 <- read.table(file = final_file,sep = ",",header = TRUE,quote = "\"",na.strings = c("","NA"))
+
+```
+
+Loading seems correct now, a litte metrics in general about the dataset
+
+```{r summary1}
+summary(data_pp_1)
+```
+
+ + First values
+ 
+```{r headFirstRows}
+
+head(data_pp_1,10)
+
+```
+
+  + Last Values
+
+```{r tailLastRows}
+tail(data_pp_1,10)
+```
+
+
+
+Observations:  
+  - Total Number of rows is **`r nrow(data_pp_1) `**, **`r ncol(data_pp_1) `** variables  
+  - *F* column is almost empty on all the data.set  
+  - *COUNTYENDN* is always NA  
+  - *COUNTY_END* is always 0  
+  - *Length*, *Width* are 0 at least at the 3rd quantile  
+  - *BGN_TIME* has mixed values, integers and time strings  
+
+* Using a different data.frame to keep the original for further checks
+
+```{r dfClone}
+data_pp_2<-data.frame()
+data_pp_2<-data_pp_1
+```
+
+* Changing data types of dates: BGN_DATE,END_DATE
+
+```{r transforms}
+
+data_pp_2$BGN_DATE <- as.Date(data_pp_2$BGN_DATE,format="%m/%d/%Y %H:%M:%S")
+data_pp_2$END_DATE <- as.Date(data_pp_2$END_DATE,format="%m/%d/%Y %H:%M:%S")
+summary(data_pp_2[,c("BGN_DATE","END_DATE")])
+
+```
+
+## Questions
+
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+
+```{r eval=FALSE}
+#length(table(data_pp_2$STATE__))70?
+#dimnames(table(data_pp_2$EVTYPE))
+
+```
+
+First we are going to analyse the EVTYPE column
+
+```{r eval=TRUE, include=TRUE}
+#evt<-(table(data_pp_2$EVTYPE))
+#evt[1]
+evt <-
+  data_pp_2 %>%
+  group_by(EVTYPE) %>%
+  summarize(total = n())
+#evt
+head(evt[order(-evt$total),],10)
+
+```
+
+Because there are `r length(evt)` different events, I decided that we could use some help (1). Getting a cleaner catalog of events, therefore we are going to match this by string distance. 
+
+First some cleaning and data wrangling
+
+```{r}
+event_type_catalog <- read.csv2(file = "EVTYPE.csv",header = TRUE)
+evt$leandata <- evt$EVTYPE
+evt$leandata <- as.character(evt$leandata)
+evt$leandata <- trimws(evt$leandata)
+evt$leandata <- tolower(evt$leandata)
+event_type_catalog$EVTYPE <- as.character(event_type_catalog$EVTYPE)
+event_type_catalog$EVTYPE <- trimws(event_type_catalog$EVTYPE)
+event_type_catalog$EVTYPE <- tolower(event_type_catalog$EVTYPE)
+```
+
+Quick look of the data.frames
+
+```{r}
+head(evt,10)
+head(event_type_catalog,10)
+```
+Hoe many rows by event type the original data.frame has, quick view
+
+```{r eval=TRUE, include=TRUE}
+evt2 <- 
+  evt %>%
+  group_by(leandata) %>%
+  summarize(total = sum(total))
+
+head(evt2[order(-evt2$total),],10)
+```
+
+Starting the process of getting the distances by jaro-winker method (closer to 0 is better)
+
+```{r}
+
+# Reclassification of EVTYPE to get a more accurate global classification
+
+# Actual eventtype (dirty data)
+uniquemodels <- unique(as.character(evt2$leandata))
+# Catalog of NOAA to match
+uniquemodels2 <- unique(as.character(event_type_catalog$EVTYPE)) 
+
+# Calculation of the string distances by Jaro–Winkler
+distancemodels <- stringdistmatrix(uniquemodels2,uniquemodels,method = "jw")
+
+# setting colnames and rownames to identify which row and column correspond to each one distance
+rownames(distancemodels) <- uniquemodels2
+colnames(distancemodels) <- uniquemodels
+#hc <- hclust(as.dist(distancemodels,upper = TRUE))
+#plot(hc)
+#rect.hclust(hc,k=20)
+#list of minimun values (minimum values per column)
+mins<-apply(distancemodels, 2, min)
+#return list of the row number of the minimum value (most similar row vs columns)
+minlist<-apply(distancemodels, 2, which.min)
+#return list of matching values, minlist are the values of the NOAA catalog with is more likely to match the dirty data
+matchwith<-uniquemodels2[minlist]
+
+answer<-data.frame(uniquemodels, matchwith, mins)
+maxDist<-0.30
+answer_filter <- answer[(answer$mins<=maxDist)&(order(-answer$mins)),]
+head(answer_filter[order(-answer_filter$mins),],10)
+
+```
+Getting in the **evt2** data.frame the values adjusted to the master catalog of event_types
+```{r}
+evt2_match <- merge(evt2,answer_filter,by.x=c("leandata"),by.y=c("uniquemodels"),all.x = TRUE)
+head(evt2_match[order(-evt2_match$total),],10)
+```
+
+Lets do a quick analysis of the percentiles in where the data is null, separate the data in null and not null
+
+```{r}
+evt2_match$factor_matchwith<-0
+evt2_match[complete.cases(evt2_match),'factor_matchwith'] <- 1
+
+```
+
+
+```{r}
+evt3 <- 
+  evt2_match %>%
+  group_by(factor_matchwith) %>%
+  summarize(total = sum(total), total_cn = n())
+
+evt3[order(-evt3$total),]
+```
+At a **maxDist** of .30 we found a good proportion of data events  re-classified, `r (evt3[evt3$factor_matchwith==0,'total']/evt3[evt3$factor_matchwith==1,'total'])*100`% are misspelled events, summary or something that occur one time and not relevant
+
+
+2. Across the United States, which types of events have the greatest economic consequences?
+
+
+## Results
+
+***
+### Useful resources
+> [DataSource](https://www.ncdc.noaa.gov/stormevents/ftp.jsp)  
+> + [Detailed information about the fields columns](https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/Storm-Data-Bulk-csv-Format.pdf)
+> + [(1) Detailed information about the fields columns 2](https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/Storm-Data-Export-Format.pdf)
+> + [Documentation on the file naming convention](http://www1.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/README)  
+> + [Storm events data NOAA](https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/)  
+> + [R Markdown CheatSheet](https://www.rstudio.com/wp-content/uploads/2015/02/rmarkdown-cheatsheet.pdf)  
+> + [The stringdist package for approximate string matching](https://CRAN.R-project.org/package=stringdist)
+> + [Getting he min distance of string comparison](https://stackoverflow.com/questions/50520702/extract-best-match-from-string-distance-matrix)
+> + [Usana Foad - Coursera Help](https://www.coursera.org/learn/reproducible-research/discussions/weeks/4/threads/38y35MMiEeiERhLphT2-QA)
+> + [Understanding PROPDMGEXP and CROPDMGEXP](https://rstudio-pubs-static.s3.amazonaws.com/58957_37b6723ee52b455990e149edde45e5b6.html)
