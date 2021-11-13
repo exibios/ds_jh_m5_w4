@@ -1,5 +1,5 @@
 ---
-title: "Final project Reroducible Research"
+title: "A brief analysis of Storm events data with NOAA information"
 author: "Franco Israel Corona Hernandez"
 date: "7/11/2021"
 output: 
@@ -12,6 +12,23 @@ output:
 
   * Done
 
+## Synopsis
+
+Climate is an important part of our lives and world so we better try to understand the most of it to know how it affect us. 
+Here I present an analysis of the principal events recorded from 1950 to 2011 and the question we want to address are:
+
+1.	Across the United States, which types of events (as indicated in the EVTYPE are most harmful with respect to population health?
+2.	Across the United States, which types of events have the greatest economic consequences?
+
+To answer this, we are provided of a data set from the Storm data events recorded by NOAA. 
+First, we adjust the data to fit our purpose, this includes data transformations and calculations based on multiple resources and investigation. 
+As this a critical part of our analysis this report is covered mostly of the adjustments and a brief review of the data and how it was transformed.
+
+Finally, my results are presented as a quick view of the top events for each question. 
+
+For further information and doubts regarding this report please contact me.
+
+ 
 
 ## Getting data
 
@@ -354,7 +371,7 @@ data_pp_2<-data.frame()
 data_pp_2<-data_pp_1
 ```
 
-* Changing data types of dates: BGN_DATE,END_DATE
+* Changing data types of dates: BGN_DATE,END_DATE, this for further manipulation and plot of the health damage by year
 
 
 ```r
@@ -374,21 +391,18 @@ summary(data_pp_2[,c("BGN_DATE","END_DATE")])
 ##                       NA's   :243411
 ```
 
+Further transformations are included in the Questions section
+
 ## Questions
 
 1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
 
-
-```r
-#length(table(data_pp_2$STATE__))70?
-#dimnames(table(data_pp_2$EVTYPE))
 ```
 
+1.1 - I'm going to analyse the EVTYPE column
 
 
 ```r
-#evt<-(table(data_pp_2$EVTYPE))
-#evt[1]
 evt <-
   data_pp_2 %>%
   group_by(EVTYPE) %>%
@@ -413,6 +427,10 @@ head(evt[order(-evt$total),],10)
 ## 10 HEAVY SNOW          15708
 ```
 
+Because there are 2 different events, I decided that we could use some help (1). Getting a cleaner catalog of events, therefore we are going to match this by string distance. 
+
+First some cleaning and data wrangling
+
 
 ```r
 event_type_catalog <- read.csv2(file = "EVTYPE.csv",header = TRUE)
@@ -424,6 +442,8 @@ event_type_catalog$EVTYPE <- as.character(event_type_catalog$EVTYPE)
 event_type_catalog$EVTYPE <- trimws(event_type_catalog$EVTYPE)
 event_type_catalog$EVTYPE <- tolower(event_type_catalog$EVTYPE)
 ```
+
+Quick look of the data.frames
 
 
 ```r
@@ -463,6 +483,7 @@ head(event_type_catalog,10)
 ## 9                drought
 ## 10            dust devil
 ```
+How many rows by event type the original data.frame has, quick view
 
 
 ```r
@@ -489,6 +510,8 @@ head(evt2[order(-evt2$total),],10)
 ##  9 lightning           15755
 ## 10 heavy snow          15708
 ```
+
+Starting the process of getting the distances by jaro-winker method (closer to 0 is better)
 
 
 ```r
@@ -594,16 +617,180 @@ evt3[order(-evt3$total),]
 ```
 At a **maxDist** of .30 we found a good proportion of data events  re-classified, 0.7521542% are misspelled events, summary or something that occur one time and not relevant
 
+A little review of the data.frames I have  
+**data_pp_2** has the full data, whit a few transformations  
+**evt** has the relation between original *EVTYPE* column and *leandata* (the one used to measure distances)  
+**evt2_match** has the final data.frame with a more clear classification (matchwith column)
+
+
+```r
+x0<-merge(evt,evt2_match,by.x=c("leandata"),by.y=c("leandata"),all.x = TRUE)
+x<-merge(data_pp_2,x0,by.x=c("EVTYPE"),by.y=c("EVTYPE"),all.x = TRUE) 
+#matchwith is the final event_type_colum
+```
+
+1.2 Checking the rest of the columns I discovered two columns, one of fatalities and other for injuries, for practical purposes we're going to break that down by year and if it was fatal o not, a plot would by helpful here.
+
+
+```r
+x_p1 <-
+x %>%
+  group_by(matchwith) %>%
+  summarize(fatal = sum(FATALITIES), non_fatal = sum(INJURIES))
+x_p1$total <- x_p1$fatal + x_p1$non_fatal
+x_p1 <- x_p1[order(-x_p1$total),]
+```
+
+This **plot** to see over the years how injuries evolve
+
+
+```r
+x_p1_1 <-
+x %>%
+  group_by(year=format(BGN_DATE,'%Y')) %>%
+  summarize(fatal = sum(FATALITIES), non_fatal = sum(INJURIES))
+x_p1_1$total <- x_p1_1$fatal + x_p1_1$non_fatal
+x_p1_1 <- x_p1_1[order(x_p1_1$year),]
+
+# using a factor for fatalities would be more practical
+g<-ggplot(data=x_p1_1,aes(x=year,group = 1))
+g %>%
++geom_line(aes(y=total),linetype="solid",color="deepskyblue4") %>%
++geom_line(aes(y=fatal),linetype="solid",color="red") %>%
++geom_line(aes(y=non_fatal),linetype="solid",color="green") %>%
++theme_minimal() %>%
++theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) %>%
++labs(x = "Years",y="Total Health incidents", title = "Time series plot",subtitle = "breakdown of fatalities, injuries and total",colour= "Metric")
+```
+
+![](finalAssignment_files/figure-html/unnamed-chunk-11-1.png)<!-- -->
+
+
+Evolve of how Health Injuries evolve over time (Year)
+
+
 
 2. Across the United States, which types of events have the greatest economic consequences?
 
+This requires a little more of transformation, we part from the "matchwith" column which 
+we have been working with. 
+Checking columns in the data, this two columns show economic damage on property and crops 
+("PROPDMG","CROPDMG"), so we're going to adjust with the corresponding EXP columns to get 
+a comparable value ("PROPDMGEXP","CROPDMGEXP").
+Rules are:
+
+```r
+x_minimal <- x[,c("matchwith","PROPDMG","PROPDMGEXP","CROPDMG","CROPDMGEXP")]
+```
+
+Existing values of exponents
+
+
+```r
+table(x_minimal$PROPDMGEXP)
+```
+
+```
+## 
+##      -      ?      +      0      1      2      3      4      5      6      7 
+##      1      8      5    216     25     13      4      4     28      4      5 
+##      8      B      h      H      K      m      M 
+##      1     40      1      6 424665      7  11330
+```
+
+```r
+table(x_minimal$CROPDMGEXP)
+```
+
+```
+## 
+##      ?      0      2      B      k      K      m      M 
+##      7     19      1      9     21 281832      1   1994
+```
+
+mapping and equivalencies
+
+```r
+v_exp   <-c("-","?","+","0","1","2","3","4","5","6","7","8","9","B","h","H","K","k","m","M")
+v_value <-c(0,0,1,10,10,10,10,10,10,10,10,10,10,1000000000,100,100,1000,1000,1000000,1000000)
+v_transform <- data.frame(v_exp,v_value)
+x_minimal_transform <- merge(x_minimal,v_transform,by.x = c("PROPDMGEXP"),by.y = c("v_exp"),all.x = TRUE ) 
+x_minimal_transform <- merge(x_minimal_transform,v_transform,by.x = c("CROPDMGEXP"),by.y = c("v_exp"),all.x = TRUE ) 
+
+x_minimal_transform$CROPDMG_VALUE<-x_minimal_transform$CROPDMG*x_minimal_transform$v_value.y
+x_minimal_transform$PROPDMG_VALUE<-x_minimal_transform$PROPDMG*x_minimal_transform$v_value.x
+x_minimal_transform$total=coalesce(x_minimal_transform$PROPDMG_VALUE,0)+coalesce(x_minimal_transform$CROPDMG_VALUE,0)
+```
+
+Creating a dataframe grouped by event_type, and ordered by the damage value 
+
+
+```r
+x_p2 <-
+x_minimal_transform %>%
+  group_by(matchwith) %>%
+  summarize( Total = sum(total))
+x_p2 <- x_p2[order(-x_p2$Total),]
+```
+
+## Results
+
+For the question 1
+Here is the top 10 events wich are the more harmful by event type, total represent both fatalities and injuries.
+
+```r
+head(x_p1[,c('matchwith','total')],10)
+```
+
+```
+## # A tibble: 10 x 2
+##    matchwith         total
+##    <chr>             <dbl>
+##  1 tornado           97022
+##  2 high wind          9279
+##  3 excessive heat     8721
+##  4 flood              7304
+##  5 lightning c        6049
+##  6 heat               3612
+##  7 flash flood        2803
+##  8 thunderstorm wind  2656
+##  9 ice storm          2227
+## 10 wildfire           1805
+```
+For the question 2:
+data.frame of top 10 evet_types most costly $ in the time period analysed, we skip null because of "summaries" those we  classified then as NA
+
+
+```r
+head(x_p2[complete.cases(x_p2),],10)
+```
+
+```
+## # A tibble: 10 x 2
+##    matchwith                  Total
+##    <chr>                      <dbl>
+##  1 flood               150986524004
+##  2 hurricane (typhoon)  90161397810
+##  3 tornado              58959501107
+##  4 storm surge/tide     47965579000
+##  5 hail                 19000567177
+##  6 flash flood          18189278261
+##  7 drought              15018687780
+##  8 high wind            11738689485
+##  9 ice storm             8985163810
+## 10 wildfire              8903339630
+```
+
+
+
 ***
 ### Useful resources
-> [DataSource](https://www.ncdc.noaa.gov/stormevents/ftp.jsp)  
+> + [Storm data documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)  
+> + [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+> + [DataSource](https://www.ncdc.noaa.gov/stormevents/ftp.jsp)  
 > + [Detailed information about the fields columns](https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/Storm-Data-Bulk-csv-Format.pdf)
-> + [Detailed information about the fields columns 2](https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/Storm-Data-Export-Format.pdf)
-> + [Documentation on the file naming convention](http://www1.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/README)  
-> + [Storm events data NOAA](https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/)  
+> + [(1) Detailed information about the fields columns 2](https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/Storm-Data-Export-Format.pdf)
+> + [Storm events data NOAA SOURCE](https://www.ncei.noaa.gov/pub/data/swdi/stormevents/csvfiles/)  
 > + [R Markdown CheatSheet](https://www.rstudio.com/wp-content/uploads/2015/02/rmarkdown-cheatsheet.pdf)  
 > + [The stringdist package for approximate string matching](https://CRAN.R-project.org/package=stringdist)
 > + [Getting he min distance of string comparison](https://stackoverflow.com/questions/50520702/extract-best-match-from-string-distance-matrix)
